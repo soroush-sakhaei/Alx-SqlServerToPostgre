@@ -206,6 +206,88 @@ var qmark=Convert.ToChar(34);
 
             return builder.Length > 0 ? builder.ToString() : ";";
         }
+        
+        public static string DeleteIfExistsCommand(string tableName)
+        {
+            return "IF OBJECT_ID('tempdb.dbo." + tableName + "', 'U') IS NOT NULL\r\n    DROP TABLE #T;\r\nIF OBJECT_ID('dbo." + tableName +
+                "', 'U') IS NOT NULL\r\n    DROP TABLE dbo." + tableName + ";\r\n";
+        }        
+        
+        public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, bool tableHasIdentity, int batchRowCount, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, IEnumerable<string> naturalKeyColumns = null, HashSet<string> unquotedColumns = null)
+        {
+            var dictData = data.Select(x => x.ToStringStringDictionary());
+            var Result = new List<string>();
+
+            var TempTableName = "__" + tableName + "Temp";
+            var columnNames = dictData.Select(x => x.Keys).First();
+            var columnNamesDelimited = columnNames.Select(x => "[" + x + "]").Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
+            var setColumnsCommand = columnNames.Where(x => !primaryKeyColumnNames.Contains(x)).Select(x => "[" + x + "]")
+                                        .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
+                                            (result, x) => result.Append(", [").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x));
+
+            var builder = new StringBuilder(DeleteIfExistsCommand(TempTableName) + "SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
+                .Append(@"];");
+
+            tableHasIdentity = tableHasIdentity && naturalKeyColumns == null;
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine);
+
+            if (ColumnsToDefault != null)
+                builder.Append(ColumnsToDefault.Aggregate("", (a, c) => a + string.Format("Alter table {0} add constraint def_temp_{0}_{1} default " + c.Value + " for {1};", TempTableName, c.Key))).Append(System.Environment.NewLine);
+
+            Result.Add(builder.Length > 0 ? builder.ToString() : ";");
+
+            dictData.ChunkifyToList((list, y) => list.Count != batchRowCount).ToList().ForEach(y =>
+            {
+                Result.Add(InsertRowsCommand(TempTableName, y, 25, null, false, null, unquotedColumns));
+            });
+
+            builder = new StringBuilder("");
+
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF;");
+
+            if (setCMD != null)
+                builder.Append("UPDATE [").Append(TempTableName).Append("] ").Append(setCMD).Append(";");
+
+            naturalKeyColumns = naturalKeyColumns ?? primaryKeyColumnNames;
+
+            if (deleteUnspecifiedRows && !naturalKeyColumns.IsNullOrEmpty())
+                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
+                    "] b ON ").Append(naturalKeyColumns.Select(x => "a.[" + x + "] = b.[" + x + "]")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x))
+                            .Append(" WHERE ")
+                            .Append(naturalKeyColumns.Select(x => "b.[" + x + "] IS NULL")
+                                .Aggregate(x => x, (result, x) => result + " OR " + x)).Append(";");
+
+            if (!naturalKeyColumns.IsNullOrEmpty())
+                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON ")
+                    .Append((naturalKeyColumns.Select(x => "[" + TempTableName + "].[" + x + "] = [" + tableName + "].[" + x + "]")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x) + ";"));
+
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON;");
+
+            builder.Append(@"INSERT INTO [")
+                    .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ")
+                    .Append(columnNames.Select(x => "A.[" + x + "]").Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x)))
+                    .Append(" FROM [").Append(TempTableName).Append("]");
+
+            if (!naturalKeyColumns.IsNullOrEmpty())
+                builder.Append(@" AS A
+						LEFT JOIN [").Append(tableName).Append(@"] AS B ON ")
+                            .Append(naturalKeyColumns.Select(x => @"A.[" + x + @"] = B.[" + x + @"]")
+                                            .Aggregate(x => x, (result, x) => result + " AND " + x))
+                            .Append(" WHERE ").Append(naturalKeyColumns.Select(x => "B.[" + x + "] IS NULL").Aggregate(x => x, (result, x) => result + " OR " + x));
+
+            if (tableHasIdentity)
+                builder.Append(";SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF");
+
+            builder.Append(";DROP TABLE [").Append(TempTableName).Append("];");
+
+            Result.Add(builder.Length > 0 ? builder.ToString() : ";");
+            return Result;
+        }        
 }
 
 
