@@ -319,7 +319,7 @@ public static class PostgreSQL
                         .Append(naturalKeyColumns.Select(x => "b." + x + " IS NULL")
                             .Aggregate(x => x, (result, x) => result + " OR " + x)).Append(";");
         if (!naturalKeyColumns.IsNullOrEmpty())
-            builder.Append("UPDATE ").Append(qmark).Append(tableName).Append(qmark).Append(" SET ").Append(setColumnsCommand).Append(" FROM ").Append(qmark).Append(TempTableName).Append(qmark).Append(" where ")
+            builder.Append("UPDATE ").Append(tableName).Append(" SET ").Append(setColumnsCommand).Append(" FROM ").Append(qmark).Append(TempTableName).Append(qmark).Append(" where ")
                 .Append((naturalKeyColumns.Select(x => "" + qmark + TempTableName + qmark + "." + qmark + x + qmark + " = " + qmark + tableName + qmark + "." + qmark + x + qmark)
                             .Aggregate(x => x, (result, x) => result + " AND " + x) + ";")).Append(System.Environment.NewLine);
 
@@ -334,12 +334,12 @@ public static class PostgreSQL
         }
 
         builder.Append(System.Environment.NewLine).Append(@"INSERT INTO ")
-               .Append(qmark).Append(tableName).Append(qmark).Append(@" (").Append(columnNamesDelimited).Append(") SELECT ")
+               .Append(tableName).Append(@" (").Append(columnNamesDelimited).Append(") SELECT ")
                .Append(columnNames.Select(x => "A." + qmark + x + qmark).Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x)))
-               .Append(" FROM ").Append(qmark).Append(TempTableName).Append(qmark);
+               .Append(" FROM ").Append(TempTableName);
         if (!naturalKeyColumns.IsNullOrEmpty())
             builder.Append(@" AS A
-						LEFT JOIN ").Append(qmark).Append(tableName).Append(qmark).Append(@" AS B ON ")
+						LEFT JOIN ").Append(tableName).Append(@" AS B ON ")
                         .Append(naturalKeyColumns.Select(x => @"A." + qmark + x + qmark + @" = B." + qmark + x + qmark + @"")
                                         .Aggregate(x => x, (result, x) => result + " AND " + x))
                         .Append(" WHERE ").Append(naturalKeyColumns.Select(x => "B." + qmark + x + qmark + " IS NULL;").Aggregate(x => x, (result, x) => result + " OR " + x));
@@ -359,7 +359,7 @@ public static class PostgreSQL
             builder.Append("Alter Table ").Append(tableName).Append(" Rename To ").Append(qmark).Append(tableNameUpper).Append(qmark).Append(";").Append(System.Environment.NewLine);
         }
 
-        builder.Append(System.Environment.NewLine).Append("DROP TABLE IF EXISTS ").Append(qmark).Append(TempTableName).Append(qmark).Append(";");
+        builder.Append("DROP TABLE IF EXISTS ").Append(qmark).Append(TempTableName).Append(qmark).Append(";");
         Result.Add(builder.Length > 0 ? builder.ToString() : ";");
         return Result;
     }
