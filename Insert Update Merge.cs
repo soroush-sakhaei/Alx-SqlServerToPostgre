@@ -6,63 +6,53 @@ using Application.ObjectExtensions;
 var Data = new[] {
     new {
         PersonId = 1,
-        PersonCode=1,
+        Personcode=1,
         FirstName = "John",
         LastName="Smith",
-        BirthDate="1975"
+        BirthDate=1975
     },
     new {
         PersonId = 2,
-        PersonCode=1,
+        Personcode=1,
         FirstName = "Soroush",
         LastName="Sakhaei",
-        BirthDate="1982"
+        BirthDate=1975
 
     },
     new {
         PersonId = 3,
-        PersonCode=1,
+        Personcode=1,
         FirstName = "Alex",
         LastName="Williams",
-        BirthDate="1985"
+        BirthDate=1975
     },
     new {
         PersonId = 4,
-        PersonCode=1,
+        Personcode=1,
         FirstName = "Ali",
         LastName="Karimi",
-        BirthDate="1993"
+        BirthDate=1975
     }
 };
 
 // The command returns a List of SQL insert commands.  This can be useful for batch
-PostgreSQL.InsertRowsCommand("Person",new[] {"PersonId","PersonCode"}, Data, 1000, 25, null, true, null, null ).Dump();
+PostgreSQL.InsertRowsCommand("Person",Data,1000,25,new[] {"PersonId","Personcode"}).Dump();
 
 
 // If you want all the InsertCommands together, then you can call the command this way
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue,25,null,true).First().Dump();
+PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue,25,null).First().Dump();
 
 // The purpose of MultiLineNum is to determine how many insert rows to combine into one row.  This is for performance and 25 is a good default number in SQL Server.
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25,null,true).First().Dump();
+PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25).First().Dump();
 
 // Sometimes a database will generate primary key columns when a row is added.  By specifying ColumnsToReturn, you will get SQL that will when ran return the values of those primary keys
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25, new[] {"PersonId"},true).First().Dump();
+PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25, new[] {"PersonId","Personcode"}).First().Dump();
 
-// Sometimes you want to manually specify primary keys and sometimes you want a database to specify them for you.  In SQL Server, you have to turn Identity insert on to specify a primary key in a table that by default generates keys
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25, new[] {"PersonId"}, true).First().Dump();
-
-// The InserRowsCommand is interesting because it lets you pass any type of object that "looks like" your destination table.
-// The main key is that the property names have to match the column names.  Sometimes your objects have columns that you don't want to be included in the insertion 
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25, new[] {"PersonId"}, true, new[] {"Name"}).First().Dump();
-
-// This would almost never be used in SQL Server.  I'm not sure if PostgreSQL has this issue, but there are a few rare data types that cannot be quoted in SQL.  This lets you specify which ones not to quote.
-// By default it's usually safe to quote all data
-//PostgreSQL.InsertRowsCommand("Person", Data, int.MaxValue, 25, new[] {"PersonId"}, true, new[] {"Name"}, new HashSet<string> {"Name"}).First().Dump();
 
 // The update command is a lot more straight forward.  It updates the Data in the database using the specified primary key columns to find the right data to update
-PostgreSQL.UpdateRowsCommand("Person", new [] {"PersonId","PersonCode"}, Data).Dump();
+PostgreSQL.UpdateRowsCommand("Person", new [] {"PersonId","Personcode"}, Data).Dump();
 
-PostgreSQL.MergeRowsCommand("Person",new[] {"PersonId","PersonCode"},Data,true,25).Dump();
+PostgreSQL.MergeRowsCommand("Person",new[] {"PersonId","Personcode"},Data,25,new[] {"PersonId","Personcode","BirthDate"}).Dump();
 
 
 public static class PostgreSQL
@@ -106,29 +96,38 @@ public static class PostgreSQL
             return value != null ? new StringBuilder("'").Append(value.Replace("'", "''")).Append("'") : PostgreSQL.DefaultBuilder;
     }
 
-    public static IEnumerable<string> InsertRowsCommand(string tableName, IEnumerable<string> PKColumns, object data, int batchRowCount, int multiLineNum = 25, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
+    public static IEnumerable<string> InsertRowsCommand(string tableName, object data, int batchRowCount, int multiLineNum = 25,IEnumerable<string> IdenColumns=null, IEnumerable<string> columnsToReturn = null, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
     {
         var Data = data as IEnumerable<object> ?? new[] { data };
 
         return Data.ChunkifyToList((list, y) => list.Count != batchRowCount).Select(x =>
-            InsertRowsCommand(tableName, PKColumns, x.Select(y => y.ToStringStringDictionary()), multiLineNum, columnsToReturn, indentityInsert, columnsToExclude, unquotedColumns));
+            InsertRowsCommand(tableName, x.Select(y => y.ToStringStringDictionary()), multiLineNum,IdenColumns, columnsToReturn, columnsToExclude, unquotedColumns));
     }
 
 
 
-    private static string InsertRowsCommand(string tableName, IEnumerable<string> PKColumns, IEnumerable<IDictionary<string, string>> data, int multiLineNum, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
+    private static string InsertRowsCommand(string tableName,IEnumerable<IDictionary<string, string>> data, int multiLineNum,IEnumerable<string> IdenColumns=null, IEnumerable<string> columnsToReturn = null, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
     {
         if (!data.Any())
             return ";";
 
         unquotedColumns = unquotedColumns ?? new HashSet<string>();
-
+        int noIden;
+        string[] IdenColsArray;
         var stringBuilder = new StringBuilder("");
+        if (IdenColumns != null)
+        {       
+        noIden = IdenColumns.Count();
+        IdenColsArray = IdenColumns.ToArray();
+        }
+        else
+        {
+        noIden=0;
+        IdenColsArray=null;
+        }
 
-        int noPK = PKColumns.Count();
-        string[] pkNames = PKColumns.ToArray();
 
-        string IdVal;
+        string IdenCol;
 
         string tableNameUpper = null;
         var qmark = Convert.ToChar(34);
@@ -139,13 +138,13 @@ public static class PostgreSQL
             stringBuilder.Append("Alter Table ").Append(qmark).Append(tableNameUpper).Append(qmark).Append(" Rename To ").Append(tableName).Append(";").Append(System.Environment.NewLine);
         }
 
-        if (indentityInsert)
+        if (IdenColumns != null)
         {
-            for (int i = 0; i < noPK; i++)
+            for (int i = 0; i < noIden; i++)
             {
-                IdVal = pkNames[i];
+                IdenCol = IdenColsArray[i];
                 stringBuilder.Append("Alter Table ").Append(tableName).Append(System.Environment.NewLine);
-                stringBuilder.Append("Alter Column ").Append(qmark).Append(IdVal).Append(qmark).Append(System.Environment.NewLine);
+                stringBuilder.Append("Alter Column ").Append(qmark).Append(IdenCol).Append(qmark).Append(System.Environment.NewLine);
                 stringBuilder.Append("Drop Identity If Exists;").Append(System.Environment.NewLine);
             }
 
@@ -182,15 +181,15 @@ public static class PostgreSQL
 
         }
 
-        if (indentityInsert)
+        if (IdenColumns != null)
         {
-            for (int i = 0; i < noPK; i++)
+            for (int i = 0; i < noIden; i++)
             {
-                IdVal = pkNames[i];
+                IdenCol = IdenColsArray[i];
                 stringBuilder.Append("Alter Table ").Append(tableName).Append(System.Environment.NewLine);
-                stringBuilder.Append("Alter Column ").Append(qmark).Append(IdVal).Append(qmark).Append(System.Environment.NewLine);
+                stringBuilder.Append("Alter Column ").Append(qmark).Append(IdenCol).Append(qmark).Append(System.Environment.NewLine);
                 stringBuilder.Append("Add Generated Always As Identity;").Append(System.Environment.NewLine);
-                stringBuilder.Append("select setval(pg_get_serial_sequence('").Append(tableName).Append("','").Append(IdVal).Append("'), (select max(").Append(qmark).Append(IdVal).Append(qmark).Append(") from ").Append(tableName).Append("));").Append(System.Environment.NewLine);
+                stringBuilder.Append("select setval(pg_get_serial_sequence('").Append(tableName).Append("','").Append(IdenCol).Append("'), (select max(").Append(qmark).Append(IdenCol).Append(qmark).Append(") from ").Append(tableName).Append("));").Append(System.Environment.NewLine);
             }
         }
         if (tableNameUpper != null)
@@ -267,7 +266,7 @@ public static class PostgreSQL
         return "DROP TABLE IF EXISTS " + "\"" + tableName + "\"" + ";";
     }
 
-    public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, bool tableHasIdentity, int batchRowCount, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, IEnumerable<string> naturalKeyColumns = null, HashSet<string> unquotedColumns = null)
+    public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, int batchRowCount,IEnumerable<string> IdenColumns=null, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, IEnumerable<string> naturalKeyColumns = null, HashSet<string> unquotedColumns = null)
     {
         var qmark = Convert.ToChar(34);
         var dictData = data.Select(x => x.ToStringStringDictionary());
@@ -286,11 +285,20 @@ public static class PostgreSQL
         var columnNames = dictData.Select(x => x.Keys).First();
 
         var columnNamesDelimited = columnNames.Select(x => qmark + x + qmark).Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
-
-        int noPK = primaryKeyColumnNames.Count();
-        string[] pkNames = primaryKeyColumnNames.ToArray();
-
-        string IdVal;
+        int noIden;
+        string[] IdenColsArray;
+        if (IdenColumns != null)
+        {
+        noIden = IdenColumns.Count();
+        IdenColsArray = IdenColumns.ToArray();
+        }
+        else
+        {
+        noIden=0;
+        IdenColsArray=null;
+        }
+        
+        string IdenCol;
 
 
 
@@ -303,14 +311,14 @@ public static class PostgreSQL
 
 
 
-        tableHasIdentity = tableHasIdentity && naturalKeyColumns == null;
-        if (tableHasIdentity)
+        //tableHasIdentity = tableHasIdentity && naturalKeyColumns == null;
+        if (IdenColumns != null)
         {
-            for (int i = 0; i < noPK; i++)
+            for (int i = 0; i < noIden; i++)
             {
-                IdVal = pkNames[i];
+                IdenCol = IdenColsArray[i];
                 builder.Append("Alter Table ").Append(TempTableName).Append(System.Environment.NewLine);
-                builder.Append("Alter Column ").Append(qmark).Append(IdVal).Append(qmark).Append(System.Environment.NewLine);
+                builder.Append("Alter Column ").Append(qmark).Append(IdenCol).Append(qmark).Append(System.Environment.NewLine);
                 builder.Append("Drop Identity If Exists;").Append(System.Environment.NewLine);
 
             }
@@ -322,7 +330,7 @@ public static class PostgreSQL
         Result.Add(builder.Length > 0 ? builder.ToString() : ";");
         dictData.ChunkifyToList((list, y) => list.Count != batchRowCount).ToList().ForEach(y =>
         {
-            Result.Add(InsertRowsCommand(TempTableName, primaryKeyColumnNames, y, 25, null, false, null, unquotedColumns));
+            Result.Add(InsertRowsCommand(TempTableName,  y, 25,null, null,  null, unquotedColumns));
         });
         builder = new StringBuilder("");
 
@@ -344,13 +352,13 @@ public static class PostgreSQL
 
         var Data = data as IEnumerable<object> ?? new[] { data };
         //var IdCMD = data.First().Select(x => new StringBuilder("\"").Append(x.Key).Append(qmark)).Aggregate(x => new StringBuilder("(").Append(x), (result, x) => result.Append(", ").Append(x));                   
-        if (tableHasIdentity)
+        if (IdenColumns != null)
         {
-            for (int i = 0; i < noPK; i++)
+            for (int i = 0; i < noIden; i++)
             {
-                IdVal = pkNames[i];
+                IdenCol = IdenColsArray[i];
                 builder.Append("Alter Table ").Append(tableName).Append(System.Environment.NewLine);
-                builder.Append("Alter Column ").Append(qmark).Append(IdVal).Append(qmark).Append(System.Environment.NewLine);
+                builder.Append("Alter Column ").Append(qmark).Append(IdenCol).Append(qmark).Append(System.Environment.NewLine);
                 builder.Append("Drop Identity If Exists;").Append(System.Environment.NewLine);
             }
         }
@@ -365,15 +373,15 @@ public static class PostgreSQL
                         .Append(naturalKeyColumns.Select(x => @"A." + qmark + x + qmark + @" = B." + qmark + x + qmark + @"")
                                         .Aggregate(x => x, (result, x) => result + " AND " + x))
                         .Append(" WHERE ").Append(naturalKeyColumns.Select(x => "B." + qmark + x + qmark + " IS NULL").Aggregate(x => x, (result, x) => result + " OR " + x)).Append(";");
-        if (tableHasIdentity)
+        if (IdenColumns != null)
         {
-            for (int i = 0; i < noPK; i++)
+            for (int i = 0; i < noIden; i++)
             {
-                IdVal = pkNames[i];
+                IdenCol = IdenColsArray[i];
                 builder.Append(System.Environment.NewLine).Append("Alter Table ").Append(tableName).Append(System.Environment.NewLine);
-                builder.Append("Alter Column ").Append(qmark).Append(IdVal).Append(qmark).Append(System.Environment.NewLine);
+                builder.Append("Alter Column ").Append(qmark).Append(IdenCol).Append(qmark).Append(System.Environment.NewLine);
                 builder.Append("Add Generated Always As Identity;");
-                builder.Append(System.Environment.NewLine).Append("select setval(pg_get_serial_sequence('").Append(tableName).Append("','").Append(IdVal).Append("'), (select max(").Append(qmark).Append(IdVal).Append(qmark).Append(") from ").Append(tableName).Append("));").Append(System.Environment.NewLine);
+                builder.Append(System.Environment.NewLine).Append("select setval(pg_get_serial_sequence('").Append(tableName).Append("','").Append(IdenCol).Append("'), (select max(").Append(qmark).Append(IdenCol).Append(qmark).Append(") from ").Append(tableName).Append("));").Append(System.Environment.NewLine);
             }
         }
 
